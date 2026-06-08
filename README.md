@@ -75,6 +75,7 @@ Se puede especificar otra ruta con `--config`. Los flags CLI tienen prioridad.
 - **Scanlines**: efecto CRT
 - **Click explosion**: partículas al hacer clic + empuje lateral en gotas cercanas
 - **FPS overlay**: estadísticas en pantalla con `--show-stats`
+- **Modular**: `src/render.py` (fonts/textures/themes), `src/layer.py` (gotas/capas), `src/effects.py` (glow/partículas/stats/pipeline), `src/main.py` (CLI/bucle/config)
 - **Arquitectura capas**: `Layer` / `LayerConfig` — extensible a N capas
 - **Pipeline post-procesamiento**: efectos encadenables como `List[Callable]`
 - **Persistencia**: configuración vía `config.json`
