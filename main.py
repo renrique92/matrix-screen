@@ -5,7 +5,7 @@ Author: Rafael Sendrea
 import pygame
 import random
 import sys
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 CANVAS_WIDTH = 800
 CANVAS_HEIGHT = 600
@@ -31,6 +31,7 @@ GREENS = [
 TICK = 20
 
 font_cache: Dict[int, pygame.font.Font] = {}
+texture_cache: Dict[Tuple[str, int, int], pygame.Surface] = {}
 color_cache: List[pygame.Color] = [pygame.Color(c) for c in GREENS]
 
 
@@ -38,6 +39,14 @@ def get_font(size: int) -> pygame.font.Font:
     if size not in font_cache:
         font_cache[size] = pygame.font.Font(FONT_PATH, size)
     return font_cache[size]
+
+
+def get_texture(char: str, size: int, color_idx: int) -> pygame.Surface:
+    key = (char, size, color_idx)
+    if key not in texture_cache:
+        font = get_font(size)
+        texture_cache[key] = font.render(char, True, color_cache[color_idx])
+    return texture_cache[key]
 
 
 def main() -> None:
@@ -116,11 +125,11 @@ def render(screen: pygame.Surface, characters: List[Dict[str, Any]]) -> None:
 
 
 def print_character(screen: pygame.Surface, character: Dict[str, Any]) -> None:
-    font_obj = get_font(character["size"])
+    size = character["size"]
     for i in range(len(color_cache)):
         char = random.choice(CHARACTERS)
-        text_surf = font_obj.render(char, True, color_cache[i])
-        screen.blit(text_surf, (character["x"], character["y"] - (i * character["size"])))
+        tex = get_texture(char, size, i)
+        screen.blit(tex, (character["x"], character["y"] - (i * size)))
 
 
 def refresh(screen: pygame.Surface) -> None:
