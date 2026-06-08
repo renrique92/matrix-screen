@@ -2,38 +2,119 @@
 MATRIX SCREEN SIMULATOR
 Author: Rafael Sendrea
 """
+from __future__ import annotations
+import json
 import pygame
 import random
 import sys
 import argparse
-from typing import List, Dict, Any, Tuple
+from dataclasses import dataclass
+from math import cos, sin
+from typing import List, Dict, Any, Tuple, Callable
 
 CANVAS_WIDTH = 800
 CANVAS_HEIGHT = 600
-PARTICLE_MIN_SIZE = 10
-PARTICLE_MAX_SIZE = 20
 
 SCREEN_OFFSET = 150
 
 CHARACTERS = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ0123456789ABCDEF@#$%&"
 FONT_PATH = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
-GREENS = [
-    "#66FF66",
-    "#33FF33",
-    "#00EE00",
-    "#00DD00",
-    "#009900",
-    "#008000",
-    "#005000",
-    "#004000",
-    "#001900"
-]
+
+THEMES: Dict[str, List[str]] = {
+    "classic": ["#66FF66", "#33FF33", "#00EE00", "#00DD00", "#009900", "#008000", "#005000", "#004000", "#001900"],
+    "amber": ["#FFB000", "#E0A000", "#C08000", "#A06000", "#805000", "#604000", "#403000", "#302000", "#201000"],
+    "cyan": ["#AAFFFF", "#66FFEE", "#33FFDD", "#00FFCC", "#00CC99", "#009966", "#006633", "#004422", "#002211"],
+    "ice": ["#FFFFFF", "#CCFFFF", "#99FFFF", "#66FFFF", "#33CCCC", "#009999", "#006666", "#004444", "#002222"],
+}
 
 TICK = 30
 
 font_cache: Dict[int, pygame.font.Font] = {}
 texture_cache: Dict[Tuple[str, int, int], pygame.Surface] = {}
-color_cache: List[pygame.Color] = [pygame.Color(c) for c in GREENS]
+color_cache: List[pygame.Color] = [pygame.Color(c) for c in THEMES["classic"]]
+
+bg_color_cache: List[pygame.Color] = [pygame.Color(c) for c in THEMES["classic"][-4:]]
+
+current_theme_name: str = "classic"
+HEAD_COLOR = pygame.Color("#FFFFFF")
+
+
+@dataclass
+class LayerConfig:
+    min_size: int = 12
+    max_size: int = 20
+    min_vel: int = 3
+    max_vel: int = 8
+    alpha: int = 255
+    spawn_rate: float = 1.0
+    color_offset: int = 0
+
+
+class Layer:
+    config: LayerConfig
+    characters: List[Dict[str, Any]]
+    x_velocities: List[int]
+    spawn_counter: float
+
+    def __init__(self, config: LayerConfig, w: int) -> None:
+        self.config = config
+        self.characters = []
+        num_part = round(w / config.max_size)
+        self.x_velocities = [random.randint(config.min_vel, config.max_vel) for _ in range(num_part)]
+        self.spawn_counter = 0.0
+
+    def spawn(self, noise: float) -> None:
+        cfg = self.config
+        num_part = len(self.x_velocities)
+        step = cfg.max_size
+        self.spawn_counter += cfg.spawn_rate * noise
+        while self.spawn_counter >= 1.0:
+            self.spawn_counter -= 1.0
+            rx = random.randint(0, num_part - 1)
+            self.characters.append({
+                "x": rx * step,
+                "y": 0,
+                "text": random.choice(CHARACTERS),
+                "velocity": self.x_velocities[rx],
+                "size": random.randint(cfg.min_size, cfg.max_size),
+            })
+
+    def update(self, h: int) -> None:
+        for ch in self.characters:
+            ch["y"] += ch["velocity"]
+        self.characters[:] = [c for c in self.characters if c["y"] <= h + SCREEN_OFFSET]
+
+    def render(self, screen: pygame.Surface) -> None:
+        cfg = self.config
+        colors = color_cache if cfg.color_offset == 0 else bg_color_cache
+        lc = len(colors)
+        for ch in self.characters:
+            vel = ch["velocity"]
+            size = ch["size"]
+            trail_len = int(min(lc, max(2, vel + 2)) if cfg.color_offset == 0 else min(lc, max(1, vel)))
+            y = ch["y"]
+            for i in range(trail_len):
+                c = random.choice(CHARACTERS)
+                if i == 0 and cfg.color_offset == 0:
+                    font = get_font(size)
+                    tex = font.render(c, True, HEAD_COLOR)
+                else:
+                    ci = (i - 1) if cfg.color_offset == 0 else i
+                    tex = get_texture(c, size, ci, cfg.alpha)
+                screen.blit(tex, (ch["x"], y))
+                gap = max(1, size - i)
+                y -= gap
+
+
+def set_theme(name: str) -> None:
+    global color_cache, bg_color_cache, current_theme_name
+    colors = THEMES[name]
+    color_cache = [pygame.Color(c) for c in colors]
+    bg_color_cache = [pygame.Color(c) for c in colors[-4:]]
+    texture_cache.clear()
+    glow_cache.clear()
+    particle_tex_cache.clear()
+    current_theme_name = name
 
 
 def get_font(size: int) -> pygame.font.Font:
@@ -42,132 +123,313 @@ def get_font(size: int) -> pygame.font.Font:
     return font_cache[size]
 
 
-def get_texture(char: str, size: int, color_idx: int) -> pygame.Surface:
-    key = (char, size, color_idx)
+def get_texture(char: str, size: int, color_idx: int, alpha: int = 255) -> pygame.Surface:
+    key = (char, size, color_idx, alpha)
     if key not in texture_cache:
         font = get_font(size)
-        texture_cache[key] = font.render(char, True, color_cache[color_idx])
+        col = color_cache[color_idx] if alpha == 255 else bg_color_cache[color_idx]
+        tex = font.render(char, True, col)
+        if alpha < 255:
+            tex.set_alpha(alpha)
+        texture_cache[key] = tex
     return texture_cache[key]
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Matrix Screen Simulator")
-    parser.add_argument("--fullscreen", action="store_true",
+    parser.add_argument("--fullscreen", action="store_true", default=None,
                         help="Fullscreen mode")
-    parser.add_argument("-W", "--width", type=int, default=CANVAS_WIDTH,
-                        help="Window width (default: %(default)s)")
-    parser.add_argument("-H", "--height", type=int, default=CANVAS_HEIGHT,
-                        help="Window height (default: %(default)s)")
-    parser.add_argument("--fps", type=int, default=TICK,
-                        help="Frames per second (default: %(default)s)")
-    parser.add_argument("--noise", type=float, default=1.0,
-                        help="Spawn rate multiplier 0.0-2.0 (default: %(default)s)")
-    return parser.parse_args()
+    parser.add_argument("-W", "--width", type=int, default=None,
+                        help="Window width")
+    parser.add_argument("-H", "--height", type=int, default=None,
+                        help="Window height")
+    parser.add_argument("--fps", type=int, default=None,
+                        help="Frames per second")
+    parser.add_argument("--noise", type=float, default=None,
+                        help="Spawn rate multiplier 0.0-2.0")
+    parser.add_argument("--show-stats", action="store_true", default=None,
+                        help="Show FPS and drop count overlay")
+    parser.add_argument("--glow", action="store_true", default=None,
+                        help="Enable neon glow effect (bloom)")
+    parser.add_argument("--theme", type=str, default=None,
+                        choices=list(THEMES.keys()),
+                        help="Color theme")
+    parser.add_argument("--scanlines", action="store_true", default=None,
+                        help="Enable CRT scanline effect")
+    parser.add_argument("--config", type=str, default=None,
+                        help="Load config from JSON file")
+    return parser.parse_args(argv)
+
+
+def load_config(path: str) -> Dict[str, Any]:
+    with open(path) as f:
+        return json.load(f)
+
+
+def merge_cfg(args: argparse.Namespace, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    cli = vars(args)
+    result: Dict[str, Any] = {}
+    result["width"] = cli.get("width") or cfg.get("width", CANVAS_WIDTH)
+    result["height"] = cli.get("height") or cfg.get("height", CANVAS_HEIGHT)
+    result["fps"] = cli.get("fps") or cfg.get("fps", TICK)
+    result["noise"] = cli.get("noise") or cfg.get("noise", 1.0)
+    result["theme"] = cli.get("theme") or cfg.get("theme", "classic")
+    result["fullscreen"] = cli.get("fullscreen") if cli.get("fullscreen") is not None else cfg.get("fullscreen", False)
+    result["show_stats"] = cli.get("show_stats") if cli.get("show_stats") is not None else cfg.get("show_stats", False)
+    result["glow"] = cli.get("glow") if cli.get("glow") is not None else cfg.get("glow", False)
+    result["scanlines"] = cli.get("scanlines") if cli.get("scanlines") is not None else cfg.get("scanlines", False)
+    result["layers"] = cfg.get("layers")
+    return result
+
+
+def make_layers(raw: List[Dict[str, Any]] | None, w: int) -> List[Layer]:
+    if raw:
+        return [Layer(LayerConfig(**lc), w) for lc in raw]
+    return [
+        Layer(LayerConfig(min_size=8, max_size=12, min_vel=1, max_vel=3,
+                          alpha=40, spawn_rate=0.3, color_offset=4), w),
+        Layer(LayerConfig(), w),
+    ]
+
+
+CONFIG_PATH = "config.json"
 
 
 def main() -> None:
     args = parse_args()
+    cfg: Dict[str, Any] = {}
+    config_src = args.config or CONFIG_PATH
+    try:
+        cfg = load_config(config_src)
+    except FileNotFoundError:
+        pass
+    merged = merge_cfg(args, cfg)
+
     pygame.init()
 
-    w = args.width
-    h = args.height
-    flags = pygame.FULLSCREEN if args.fullscreen else 0
+    w = merged["width"]
+    h = merged["height"]
+    flags = pygame.FULLSCREEN if merged["fullscreen"] else 0
     screen = pygame.display.set_mode((w, h), flags)
     pygame.display.set_caption("Matrix Screen")
     clock = pygame.time.Clock()
 
+    set_theme(merged["theme"])
+
     refresh(screen)
 
-    characters: List[Dict[str, Any]] = []
+    layers = make_layers(merged.get("layers"), w)
 
-    num_part = round(w / PARTICLE_MAX_SIZE)
-
-    x_velocities: List[int] = []
-    for _ in range(num_part):
-        x_velocities.append(random.randint(3, 8))
-
-    run_loop(screen, clock, characters, x_velocities, spawn=True,
-             spawn_rate=args.noise, fps=args.fps)
+    run_loop(screen, clock, layers, spawn=True, spawn_rate=merged["noise"],
+             fps=merged["fps"], show_stats=merged["show_stats"],
+             glow=merged["glow"], scanlines=merged["scanlines"])
 
     print("Breaking free from the matrix...")
-    accelerate_all(characters)
+    if layers:
+        for ch in layers[-1].characters:
+            ch["velocity"] = 10
 
-    run_loop(screen, clock, characters, x_velocities, spawn=False, fps=args.fps)
+    run_loop(screen, clock, layers, spawn=False, fps=merged["fps"],
+             show_stats=merged["show_stats"],
+             glow=merged["glow"], scanlines=merged["scanlines"])
 
     print("You took the red pill!")
     pygame.quit()
 
 
-def accelerate_all(characters: List[Dict[str, Any]]) -> None:
-    for char in characters:
-        char["velocity"] = 10
+GLOW_SCALE = 4
+GLOW_ALPHA = 80
+
+
+def build_pipeline(glow: bool, glow_surf: Any,
+                   fg_layer: Layer | None, w: int, h: int,
+                   scanlines: bool, scanline_surf: Any,
+                   show_stats: bool, clock: pygame.time.Clock,
+                   paused_ref: List[bool]) -> List[Callable[[pygame.Surface], None]]:
+    pipe: List[Callable[[pygame.Surface], None]] = []
+    if glow and glow_surf and fg_layer:
+        def apply_glow(screen: pygame.Surface) -> None:
+            glow_surf.fill((0, 0, 0))
+            render_glow(glow_surf, fg_layer.characters, w, h)
+            scaled = pygame.transform.scale(glow_surf, (w, h))
+            scaled.set_alpha(GLOW_ALPHA)
+            screen.blit(scaled, (0, 0), special_flags=pygame.BLEND_ADD)
+        pipe.append(apply_glow)
+    if scanlines and scanline_surf:
+        def apply_scanlines(screen: pygame.Surface) -> None:
+            screen.blit(scanline_surf, (0, 0))
+        pipe.append(apply_scanlines)
+    if show_stats:
+        def apply_stats(screen: pygame.Surface) -> None:
+            n = len(fg_layer.characters) if fg_layer else 0
+            draw_stats(screen, clock, n, paused_ref[0])
+        pipe.append(apply_stats)
+    return pipe
 
 
 def run_loop(screen: pygame.Surface, clock: pygame.time.Clock,
-             characters: List[Dict[str, Any]], x_velocities: List[int],
-             spawn: bool, spawn_rate: float = 1.0, fps: int = 20) -> None:
+             layers: List[Layer], spawn: bool,
+             spawn_rate: float = 1.0, fps: int = 20,
+             show_stats: bool = False,
+             glow: bool = False, scanlines: bool = False) -> None:
     w = screen.get_width()
     h = screen.get_height()
-    num_part = round(w / PARTICLE_MAX_SIZE)
-    spawn_counter = 0.0
+    noise = spawn_rate
+    fg_layer = layers[-1] if layers else None
+    paused_ref = [False]
+
+    particles: List[Dict[str, Any]] = []
+
+    glow_surf = None
+    if glow:
+        glow_surf = pygame.Surface((w // GLOW_SCALE, h // GLOW_SCALE))
+
+    scanline_surf = None
+    if scanlines:
+        scanline_surf = pygame.Surface((w, h), pygame.SRCALPHA)
+        for sy in range(0, h, 2):
+            scanline_surf.fill((0, 0, 0, 25), (0, sy, w, 1))
+
+    pipeline = build_pipeline(glow, glow_surf, fg_layer, w, h,
+                              scanlines, scanline_surf,
+                              show_stats, clock, paused_ref)
 
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            if event.type == pygame.MOUSEBUTTONDOWN and spawn:
+                mx, my = event.pos
+                for _ in range(random.randint(10, 20)):
+                    angle = random.uniform(0, 2 * 3.14159)
+                    speed = random.uniform(2, 6)
+                    particles.append({
+                        "x": mx,
+                        "y": my,
+                        "vx": cos(angle) * speed,
+                        "vy": sin(angle) * speed,
+                        "life": 1.0,
+                        "size": random.randint(8, 14),
+                    })
+                if fg_layer:
+                    for ch in fg_layer.characters:
+                        dx = abs(ch["x"] - mx)
+                        if dx < 60:
+                            push = (60 - dx) / 60 * 4
+                            ch["velocity"] = max(1, ch["velocity"] + random.uniform(1, push))
             if event.type == pygame.KEYDOWN:
-                return
+                if not spawn:
+                    return
+                key = event.key
+                if key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    sys.exit()
+                elif key == pygame.K_p:
+                    paused_ref[0] = not paused_ref[0]
+                elif key == pygame.K_EQUALS or key == pygame.K_PLUS:
+                    noise = min(2.0, noise + 0.2)
+                elif key == pygame.K_MINUS or key == pygame.K_UNDERSCORE:
+                    noise = max(0.0, noise - 0.2)
+                elif key == pygame.K_r:
+                    for lyr in layers:
+                        lyr.characters.clear()
+                elif key == pygame.K_c:
+                    themes = list(THEMES.keys())
+                    idx = (themes.index(current_theme_name) + 1) % len(themes)
+                    set_theme(themes[idx])
+                elif key == pygame.K_SPACE:
+                    if fg_layer:
+                        for _ in range(random.randint(20, 30)):
+                            fg_layer.spawn(1.0)
 
-        if spawn:
-            spawn_counter += spawn_rate
-            while spawn_counter >= 1.0:
-                spawn_counter -= 1.0
-                rand_x = random.randint(0, num_part - 1)
-                character: Dict[str, Any] = {
-                    "x": rand_x * PARTICLE_MAX_SIZE,
-                    "y": 0,
-                    "text": random.choice(CHARACTERS),
-                    "velocity": x_velocities[rand_x],
-                    "size": random.randint(PARTICLE_MIN_SIZE, PARTICLE_MAX_SIZE)
-                }
-                characters.append(character)
+        if paused_ref[0]:
+            pygame.display.flip()
+            clock.tick(fps)
+            continue
 
-        update(characters, h)
-        render(screen, characters)
+        update_particles(particles)
+        for lyr in layers:
+            if spawn:
+                lyr.spawn(noise)
+            lyr.update(h)
+            lyr.render(screen)
+
+        render_particles(screen, particles, clock)
+        for fn in pipeline:
+            fn(screen)
         pygame.display.flip()
         clock.tick(fps)
         refresh(screen)
 
 
-def update(characters: List[Dict[str, Any]], h: int) -> None:
-    for character in characters:
-        character["y"] += character["velocity"]
-    characters[:] = [c for c in characters if c["y"] <= h + SCREEN_OFFSET]
+def update_particles(particles: List[Dict[str, Any]]) -> None:
+    dt = 0.016
+    for p in particles:
+        p["x"] += p["vx"]
+        p["y"] += p["vy"]
+        p["vy"] += 2 * dt
+        p["life"] -= dt * 2
+    particles[:] = [p for p in particles if p["life"] > 0]
 
 
-def render(screen: pygame.Surface, characters: List[Dict[str, Any]]) -> None:
-    for character in characters:
-        print_character(screen, character)
+particle_tex_cache: Dict[int, pygame.Surface] = {}
 
 
-def print_character(screen: pygame.Surface, character: Dict[str, Any]) -> None:
-    vel = character["velocity"]
-    size = character["size"]
-    trail_len = min(len(color_cache), max(2, vel + 2))
+def render_particles(screen: pygame.Surface, particles: List[Dict[str, Any]],
+                     clock: pygame.time.Clock) -> None:
+    for p in particles:
+        size = p["size"]
+        if size not in particle_tex_cache:
+            font = get_font(size)
+            col = color_cache[0]
+            particle_tex_cache[size] = font.render(random.choice(CHARACTERS), True, col)
+        tex = particle_tex_cache[size].copy()
+        alpha = max(0, min(255, int(p["life"] * 255)))
+        tex.set_alpha(alpha)
+        screen.blit(tex, (p["x"], p["y"]))
 
-    y = character["y"]
-    for i in range(trail_len):
-        char = random.choice(CHARACTERS)
-        tex = get_texture(char, size, i)
-        screen.blit(tex, (character["x"], y))
-        # Decreasing gap: each step is slightly smaller
-        gap = max(2, size - i)
-        y -= gap
+
+glow_cache: Dict[Tuple[str, int, int], pygame.Surface] = {}
+
+
+def get_glow_texture(char: str, size: int, color_idx: int) -> pygame.Surface:
+    key = (char, size, color_idx)
+    if key not in glow_cache:
+        font = get_font(max(1, size // GLOW_SCALE))
+        col = color_cache[color_idx]
+        glow_cache[key] = font.render(char, True, col)
+    return glow_cache[key]
+
+
+def render_glow(surf: pygame.Surface, characters: List[Dict[str, Any]],
+                w: int, h: int) -> None:
+    gs = GLOW_SCALE
+    for ch in characters:
+        size = max(1, ch["size"] // gs)
+        vel = ch["velocity"]
+        trail_len = min(len(color_cache), max(2, vel + 2))
+        y = ch["y"] // gs
+        x = ch["x"] // gs
+        for i in range(trail_len):
+            c = random.choice(CHARACTERS)
+            tex = get_glow_texture(c, size, 0 if i == 0 else i - 1)
+            surf.blit(tex, (x, y))
+            gap = max(1, size - i)
+            y -= gap
 
 
 def refresh(screen: pygame.Surface) -> None:
     screen.fill((0, 0, 0))
+
+
+def draw_stats(screen: pygame.Surface, clock: pygame.time.Clock,
+               drop_count: int, paused: bool = False) -> None:
+    font = pygame.font.Font(None, 14)
+    status = " PAUSED" if paused else ""
+    text = f"FPS: {clock.get_fps():.0f} | Drops: {drop_count}{status}"
+    surf = font.render(text, True, pygame.Color("#666666"))
+    screen.blit(surf, (4, 4))
 
 
 if __name__ == '__main__':

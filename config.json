@@ -1,0 +1,15 @@
+{
+  "theme": "classic",
+  "fps": 30,
+  "noise": 1.0,
+  "fullscreen": false,
+  "width": 800,
+  "height": 600,
+  "show_stats": false,
+  "glow": false,
+  "scanlines": false,
+  "layers": [
+    {"min_size": 8, "max_size": 12, "min_vel": 1, "max_vel": 3, "alpha": 40, "spawn_rate": 0.3, "color_offset": 4},
+    {"min_size": 12, "max_size": 20, "min_vel": 3, "max_vel": 8, "alpha": 255, "spawn_rate": 1.0, "color_offset": 0}
+  ]
+}

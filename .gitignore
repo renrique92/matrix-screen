@@ -7,3 +7,4 @@ build/
 .venv/
 venv/
 AGENTS.md
+plans/
