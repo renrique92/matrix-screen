@@ -79,9 +79,9 @@ class Layer:
                 "size": random.randint(cfg.min_size, cfg.max_size),
             })
 
-    def update(self, h: int) -> None:
+    def update(self, h: int, speed: float = 1.0) -> None:
         for ch in self.characters:
-            ch["y"] += ch["velocity"]
+            ch["y"] += ch["velocity"] * speed
         self.characters[:] = [c for c in self.characters if c["y"] <= h + SCREEN_OFFSET]
 
     def render(self, screen: pygame.Surface) -> None:
@@ -245,7 +245,8 @@ def build_pipeline(glow: bool, glow_surf: Any,
                    fg_layer: Layer | None, w: int, h: int,
                    scanlines: bool, scanline_surf: Any,
                    show_stats: bool, clock: pygame.time.Clock,
-                   paused_ref: List[bool]) -> List[Callable[[pygame.Surface], None]]:
+                   paused_ref: List[bool],
+                   speed_ref: List[float]) -> List[Callable[[pygame.Surface], None]]:
     pipe: List[Callable[[pygame.Surface], None]] = []
     if glow and glow_surf and fg_layer:
         def apply_glow(screen: pygame.Surface) -> None:
@@ -262,7 +263,7 @@ def build_pipeline(glow: bool, glow_surf: Any,
     if show_stats:
         def apply_stats(screen: pygame.Surface) -> None:
             n = len(fg_layer.characters) if fg_layer else 0
-            draw_stats(screen, clock, n, paused_ref[0])
+            draw_stats(screen, clock, n, paused_ref[0], speed_ref[0])
         pipe.append(apply_stats)
     return pipe
 
@@ -275,6 +276,8 @@ def run_loop(screen: pygame.Surface, clock: pygame.time.Clock,
     w = screen.get_width()
     h = screen.get_height()
     noise = spawn_rate
+    speed = 1.0
+    speed_ref = [speed]
     fg_layer = layers[-1] if layers else None
     paused_ref = [False]
 
@@ -292,7 +295,7 @@ def run_loop(screen: pygame.Surface, clock: pygame.time.Clock,
 
     pipeline = build_pipeline(glow, glow_surf, fg_layer, w, h,
                               scanlines, scanline_surf,
-                              show_stats, clock, paused_ref)
+                              show_stats, clock, paused_ref, speed_ref)
 
     while True:
         for event in pygame.event.get():
@@ -331,6 +334,12 @@ def run_loop(screen: pygame.Surface, clock: pygame.time.Clock,
                     noise = min(2.0, noise + 0.2)
                 elif key == pygame.K_MINUS or key == pygame.K_UNDERSCORE:
                     noise = max(0.0, noise - 0.2)
+                elif key == pygame.K_UP:
+                    speed = min(5.0, speed + 0.2)
+                    speed_ref[0] = speed
+                elif key == pygame.K_DOWN:
+                    speed = max(0.0, speed - 0.2)
+                    speed_ref[0] = speed
                 elif key == pygame.K_r:
                     for lyr in layers:
                         lyr.characters.clear()
@@ -358,7 +367,7 @@ def run_loop(screen: pygame.Surface, clock: pygame.time.Clock,
         for lyr in layers:
             if spawn:
                 lyr.spawn(noise)
-            lyr.update(h)
+            lyr.update(h, speed)
             lyr.render(screen)
 
         render_particles(screen, particles, clock)
@@ -430,10 +439,11 @@ def refresh(screen: pygame.Surface) -> None:
 
 
 def draw_stats(screen: pygame.Surface, clock: pygame.time.Clock,
-               drop_count: int, paused: bool = False) -> None:
+               drop_count: int, paused: bool = False,
+               speed: float = 1.0) -> None:
     font = pygame.font.Font(None, 14)
     status = " PAUSED" if paused else ""
-    text = f"FPS: {clock.get_fps():.0f} | Drops: {drop_count}{status}"
+    text = f"FPS: {clock.get_fps():.0f} | Drops: {drop_count} | Speed: {speed:.1f}{status}"
     surf = font.render(text, True, pygame.Color("#666666"))
     screen.blit(surf, (4, 4))
 
