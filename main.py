@@ -344,8 +344,14 @@ def run_loop(screen: pygame.Surface, clock: pygame.time.Clock,
                             fg_layer.spawn(1.0)
 
         if paused_ref[0]:
+            for lyr in layers:
+                lyr.render(screen)
+            render_particles(screen, particles, clock)
+            for fn in pipeline:
+                fn(screen)
             pygame.display.flip()
             clock.tick(fps)
+            refresh(screen)
             continue
 
         update_particles(particles)
