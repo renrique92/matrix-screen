@@ -36,6 +36,8 @@ python main.py
 |-------|--------|
 | `c` | Ciclar tema (classic → amber → cyan → ice) |
 | `p` | Pausa / reanuda |
+| `↑` | Acelerar velocidad (×1.2) |
+| `↓` | Reducir velocidad |
 | `+` / `=` | Aumentar noise (más gotas) |
 | `-` / `_` | Reducir noise |
 | `r` | Reset (limpia todas las gotas) |

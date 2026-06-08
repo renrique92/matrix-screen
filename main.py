@@ -366,7 +366,7 @@ def run_loop(screen: pygame.Surface, clock: pygame.time.Clock,
         update_particles(particles)
         for lyr in layers:
             if spawn:
-                lyr.spawn(noise)
+                lyr.spawn(noise * speed)
             lyr.update(h, speed)
             lyr.render(screen)
 
