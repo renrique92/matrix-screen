@@ -5,6 +5,7 @@ Author: Rafael Sendrea
 import pygame
 import random
 import sys
+import argparse
 from typing import List, Dict, Any, Tuple
 
 CANVAS_WIDTH = 800
@@ -49,10 +50,29 @@ def get_texture(char: str, size: int, color_idx: int) -> pygame.Surface:
     return texture_cache[key]
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Matrix Screen Simulator")
+    parser.add_argument("--fullscreen", action="store_true",
+                        help="Fullscreen mode")
+    parser.add_argument("-W", "--width", type=int, default=CANVAS_WIDTH,
+                        help="Window width (default: %(default)s)")
+    parser.add_argument("-H", "--height", type=int, default=CANVAS_HEIGHT,
+                        help="Window height (default: %(default)s)")
+    parser.add_argument("--fps", type=int, default=TICK,
+                        help="Frames per second (default: %(default)s)")
+    parser.add_argument("--noise", type=float, default=1.0,
+                        help="Spawn rate multiplier 0.0-2.0 (default: %(default)s)")
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     pygame.init()
 
-    screen = pygame.display.set_mode((CANVAS_WIDTH, CANVAS_HEIGHT))
+    w = args.width
+    h = args.height
+    flags = pygame.FULLSCREEN if args.fullscreen else 0
+    screen = pygame.display.set_mode((w, h), flags)
     pygame.display.set_caption("Matrix Screen")
     clock = pygame.time.Clock()
 
@@ -60,18 +80,19 @@ def main() -> None:
 
     characters: List[Dict[str, Any]] = []
 
-    num_part = round(CANVAS_WIDTH / PARTICLE_MAX_SIZE)
+    num_part = round(w / PARTICLE_MAX_SIZE)
 
     x_velocities: List[int] = []
     for _ in range(num_part):
         x_velocities.append(random.randint(3, 8))
 
-    run_loop(screen, clock, characters, x_velocities, spawn=True)
+    run_loop(screen, clock, characters, x_velocities, spawn=True,
+             spawn_rate=args.noise, fps=args.fps)
 
     print("Breaking free from the matrix...")
     accelerate_all(characters)
 
-    run_loop(screen, clock, characters, x_velocities, spawn=False)
+    run_loop(screen, clock, characters, x_velocities, spawn=False, fps=args.fps)
 
     print("You took the red pill!")
     pygame.quit()
@@ -84,8 +105,11 @@ def accelerate_all(characters: List[Dict[str, Any]]) -> None:
 
 def run_loop(screen: pygame.Surface, clock: pygame.time.Clock,
              characters: List[Dict[str, Any]], x_velocities: List[int],
-             spawn: bool) -> None:
-    num_part = round(CANVAS_WIDTH / PARTICLE_MAX_SIZE)
+             spawn: bool, spawn_rate: float = 1.0, fps: int = 20) -> None:
+    w = screen.get_width()
+    h = screen.get_height()
+    num_part = round(w / PARTICLE_MAX_SIZE)
+    spawn_counter = 0.0
 
     while True:
         for event in pygame.event.get():
@@ -96,27 +120,30 @@ def run_loop(screen: pygame.Surface, clock: pygame.time.Clock,
                 return
 
         if spawn:
-            rand_x = random.randint(0, num_part - 1)
-            character: Dict[str, Any] = {
-                "x": rand_x * PARTICLE_MAX_SIZE,
-                "y": 0,
-                "text": random.choice(CHARACTERS),
-                "velocity": x_velocities[rand_x],
-                "size": random.randint(PARTICLE_MIN_SIZE, PARTICLE_MAX_SIZE)
-            }
-            characters.append(character)
+            spawn_counter += spawn_rate
+            while spawn_counter >= 1.0:
+                spawn_counter -= 1.0
+                rand_x = random.randint(0, num_part - 1)
+                character: Dict[str, Any] = {
+                    "x": rand_x * PARTICLE_MAX_SIZE,
+                    "y": 0,
+                    "text": random.choice(CHARACTERS),
+                    "velocity": x_velocities[rand_x],
+                    "size": random.randint(PARTICLE_MIN_SIZE, PARTICLE_MAX_SIZE)
+                }
+                characters.append(character)
 
-        update(characters)
+        update(characters, h)
         render(screen, characters)
         pygame.display.flip()
-        clock.tick(TICK)
+        clock.tick(fps)
         refresh(screen)
 
 
-def update(characters: List[Dict[str, Any]]) -> None:
+def update(characters: List[Dict[str, Any]], h: int) -> None:
     for character in characters:
         character["y"] += character["velocity"]
-    characters[:] = [c for c in characters if c["y"] <= CANVAS_HEIGHT + SCREEN_OFFSET]
+    characters[:] = [c for c in characters if c["y"] <= h + SCREEN_OFFSET]
 
 
 def render(screen: pygame.Surface, characters: List[Dict[str, Any]]) -> None:
