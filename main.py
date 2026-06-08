@@ -29,7 +29,7 @@ GREENS = [
     "#001900"
 ]
 
-TICK = 20
+TICK = 30
 
 font_cache: Dict[int, pygame.font.Font] = {}
 texture_cache: Dict[Tuple[str, int, int], pygame.Surface] = {}
@@ -152,11 +152,18 @@ def render(screen: pygame.Surface, characters: List[Dict[str, Any]]) -> None:
 
 
 def print_character(screen: pygame.Surface, character: Dict[str, Any]) -> None:
+    vel = character["velocity"]
     size = character["size"]
-    for i in range(len(color_cache)):
+    trail_len = min(len(color_cache), max(2, vel + 2))
+
+    y = character["y"]
+    for i in range(trail_len):
         char = random.choice(CHARACTERS)
         tex = get_texture(char, size, i)
-        screen.blit(tex, (character["x"], character["y"] - (i * size)))
+        screen.blit(tex, (character["x"], y))
+        # Decreasing gap: each step is slightly smaller
+        gap = max(2, size - i)
+        y -= gap
 
 
 def refresh(screen: pygame.Surface) -> None:
