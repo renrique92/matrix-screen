@@ -8,3 +8,6 @@ build/
 venv/
 AGENTS.md
 plans/
+.agents
+.claude
+skills-lock.json
